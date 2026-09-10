@@ -1,0 +1,65 @@
+{
+  "name": "soushuba",
+  "productName": "搜书吧",
+  "version": "1.2.11",
+  "description": "搜书吧电脑版 - Discuz 小说论坛桌面客户端：内置脚本引擎、附件一键下载、自动回复解锁",
+  "main": "src/main/main.js",
+  "author": "Aur5411",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "selftest": "electron test/selftest.js",
+    "dist": "electron-builder --win --x64"
+  },
+  "dependencies": {
+    "iconv-lite": "^0.7.3"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.soushuba.pc",
+    "productName": "搜书吧",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "builtin-scripts/**/*",
+      "package.json",
+      "node_modules/**/*",
+      "!**/*.map",
+      "!**/{test,tests,example,examples,docs,doc}/**"
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "搜书吧-${version}-portable.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "搜书吧",
+      "artifactName": "搜书吧-${version}-Setup.exe"
+    }
+  }
+}

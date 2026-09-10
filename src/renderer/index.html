@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+  <title>搜书吧</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <!-- ==================== 左侧：只有导入的脚本 ==================== -->
+    <aside class="sidebar" id="sidebar">
+      <!-- 收起状态下的窄条 -->
+      <div class="rail">
+        <button class="rail-btn rail-mark" id="railExpand" title="展开脚本面板">书</button>
+        <button class="rail-btn" id="railImport" title="导入脚本">＋</button>
+        <div class="rail-spacer"></div>
+        <button class="rail-btn" id="railPin" title="固定展开（关掉自动收起）">⇥</button>
+      </div>
+
+      <div class="brand">
+        <div class="mark">书</div>
+        <div class="brand-text">
+          <div class="brand-name">搜书吧</div>
+          <div class="brand-ver" id="verText">v1.2.11</div>
+        </div>
+        <button class="icon-btn brand-fold" id="btnFoldSidebar" title="收起脚本面板">‹</button>
+      </div>
+
+      <div class="side-actions">
+        <button class="btn btn-primary" id="btnImport" title="导入脚本文件（.user.js / .js / .txt，可多选）">
+          <span class="ico">＋</span> 导入脚本
+        </button>
+        <button class="btn btn-ghost" id="btnNewScript" title="从空白开始写一个新脚本（不用准备文件）">
+          <span class="ico">✎</span> 新建脚本
+        </button>
+      </div>
+
+      <div class="side-summary" id="summary">共 0 个脚本 · 启用 0 个</div>
+
+      <ul class="script-list" id="scriptList"></ul>
+
+      <div class="side-foot">
+        <button class="link" id="btnCompat" title="点击切换。软件打不开时才需要改成「强制开启」">兼容模式：自动</button>
+        <button class="link" id="btnOpenLog" title="用记事本打开日志（出问题时发给我）">打开日志</button>
+      </div>
+    </aside>
+
+    <!-- ==================== 主区域 ==================== -->
+    <main class="main">
+      <div class="tabstrip" id="tabStrip"></div>
+
+      <div class="toolbar">
+        <div class="nav-group">
+          <button class="icon-btn" id="btnBack" title="后退 (Alt+←)">‹</button>
+          <button class="icon-btn" id="btnForward" title="前进 (Alt+→)">›</button>
+          <button class="icon-btn" id="btnReloadPage" title="刷新 (Ctrl+R)">⟳</button>
+          <button class="icon-btn" id="btnHome" title="回到论坛首页">⌂</button>
+        </div>
+
+        <div class="address-wrap">
+          <span class="addr-icon" id="addrIcon">🔒</span>
+          <input type="text" id="addressBar" spellcheck="false" placeholder="输入网址或搜索内容">
+        </div>
+
+        <!-- 右上：下载与设置 -->
+        <div class="tool-group">
+          <button class="tool-btn" id="btnDownloads" title="查看已下载的文件">
+            <span class="tool-ico">⤓</span>下载<span class="tool-count" id="dlCount">0</span>
+          </button>
+          <button class="icon-btn" id="btnOpenDownloadFolder" title="打开本地下载文件夹">📁</button>
+          <button class="icon-btn" id="btnSettings" title="设置（网站 / 下载位置 / 历史记录）">⚙</button>
+        </div>
+      </div>
+
+      <!-- WebContentsView 会覆盖在这块区域上 -->
+      <div class="content" id="contentArea"></div>
+
+      <!-- 状态栏：网页视图盖不到这里，提示只能放这，否则会被网页盖掉 -->
+      <div class="statusbar">
+        <div class="status-msg" id="statusMsg"></div>
+      </div>
+
+      <div class="drop-hint" id="dropHint">松手即导入脚本</div>
+    </main>
+  </div>
+
+  <!-- ==================== 脚本编辑器 ==================== -->
+  <div class="drawer-mask" id="drawerMask"></div>
+  <section class="drawer" id="drawer" aria-hidden="true">
+    <header class="drawer-head">
+      <h2 id="drawerTitle">编辑脚本</h2>
+      <button class="icon-btn" id="btnCloseDrawer" title="关闭">✕</button>
+    </header>
+
+    <div class="drawer-body">
+      <div class="src-note" id="fSourceNote" hidden></div>
+
+      <label class="field">
+        <span>脚本名称</span>
+        <input type="text" id="fName" placeholder="例如：某站去广告">
+      </label>
+
+      <label class="field">
+        <span>脚本源码 <em>（完整内容，含开头的 ==UserScript== 元数据块；在里面改 @name / @match / @run-at 都会生效）</em></span>
+        <div class="code-wrap">
+          <div class="gutter" id="gutter">1</div>
+          <textarea id="fCode" spellcheck="false" wrap="off"
+                    placeholder="// 可直接粘贴完整的 ==UserScript== 脚本，也可以只写 JS 代码"></textarea>
+        </div>
+      </label>
+    </div>
+
+    <footer class="drawer-foot">
+      <button class="btn btn-danger" id="btnDelete">删除</button>
+      <div class="spacer"></div>
+      <button class="btn btn-ghost" id="btnCancel">取消</button>
+      <button class="btn btn-primary" id="btnSave">保存并生效</button>
+    </footer>
+  </section>
+
+  <!-- ==================== 设置（只三块） ==================== -->
+  <div class="drawer-mask" id="settingsMask"></div>
+  <section class="drawer drawer-narrow" id="settingsDrawer" aria-hidden="true">
+    <header class="drawer-head">
+      <h2>设置</h2>
+      <button class="icon-btn" id="btnCloseSettings" title="关闭">✕</button>
+    </header>
+
+    <div class="drawer-body">
+      <!-- 网站 -->
+      <section class="set-card">
+        <h3>网站</h3>
+        <label class="field">
+          <span>论坛地址</span>
+          <input type="text" id="fForumUrl" placeholder="例如 www.soushu2030.com">
+        </label>
+        <p class="drawer-tip">
+          不用写 <code>https://</code>，软件会自动补齐。留空则用内置入口，
+          启动时走地址发布页自动找最新地址；进过一次之后会自动记住真实域名，下次直接进。
+        </p>
+        <label class="checkbox"><input type="checkbox" id="fOpenOnStart"> 启动时直接进入论坛</label>
+        <label class="checkbox"><input type="checkbox" id="fExternalLinks"> 站外链接用系统浏览器打开</label>
+        <div class="dir-builtin" id="forumInfo"></div>
+        <div class="dir-actions">
+          <button class="btn btn-primary" id="btnSaveForum">保存并前往</button>
+        </div>
+      </section>
+
+      <!-- 下载位置 -->
+      <section class="set-card">
+        <h3>下载位置</h3>
+        <div class="dir-item">
+          <div class="dir-item-main">
+            <div class="dir-item-path" id="dlPath">—</div>
+            <div class="dir-item-meta" id="dlMeta"></div>
+          </div>
+          <button class="small-btn" id="btnOpenDl" title="在资源管理器中打开">打开</button>
+          <button class="small-btn" id="btnChooseDl" title="换成别的目录">更改</button>
+          <button class="small-btn" id="btnResetDl" title="回到软件文件夹下的 Download">默认</button>
+        </div>
+        <p class="drawer-tip">
+          附件默认存在软件文件夹下的 <code>Download</code>。txt 用电脑上的记事本打开（本软件不带阅读器）。
+        </p>
+      </section>
+
+      <!-- 历史记录 -->
+      <section class="set-card">
+        <h3>历史记录</h3>
+        <div class="dir-builtin" id="historyInfo">—</div>
+        <div class="dir-actions">
+          <button class="btn btn-primary" id="btnOpenHistory">查看历史记录</button>
+          <button class="btn btn-clear" id="btnClearHistory">清空</button>
+        </div>
+      </section>
+
+      <!-- 缓存 -->
+      <section class="set-card">
+        <h3>缓存</h3>
+        <div class="dir-item">
+          <div class="dir-item-main">
+            <div class="dir-item-path" id="cachePath">—</div>
+            <div class="dir-item-meta">网页资源与脚本外链依赖的缓存</div>
+          </div>
+          <button class="small-btn" id="btnClearCache" title="清空网页缓存和脚本依赖缓存">清空缓存</button>
+        </div>
+        <p class="drawer-tip">
+          网页显示不对时可以清一下，会让它重新从服务器拉。只会清掉<b>能重建</b>的东西 ——
+          <b>不会</b>退出登录，也不动历史记录、脚本和你下载的文件。
+        </p>
+      </section>
+    </div>
+  </section>
+
+  <!-- ==================== 已下载的文件 ==================== -->
+  <div class="drawer-mask" id="downloadsMask"></div>
+  <section class="drawer drawer-narrow drawer-pop" id="downloadsDrawer" aria-hidden="true">
+    <header class="drawer-head">
+      <h2>已下载的文件</h2>
+      <button class="icon-btn" id="btnCloseDownloads" title="关闭">✕</button>
+    </header>
+
+    <div class="drawer-body">
+      <div class="dir-item">
+        <div class="dir-item-main">
+          <div class="dir-item-path" id="dlPanelPath">—</div>
+          <div class="dir-item-meta" id="dlPanelMeta"></div>
+        </div>
+        <button class="small-btn" id="dlPanelOpenFolder" title="在资源管理器中打开">打开文件夹</button>
+      </div>
+
+      <div class="dir-actions">
+        <button class="btn btn-ghost" id="btnRefreshDlList">刷新列表</button>
+        <button class="btn btn-ghost" id="btnChooseDl2">更改目录</button>
+      </div>
+
+      <ul class="dir-list dl-list" id="dlList"></ul>
+
+      <p class="drawer-tip">
+        点文件名用系统默认程序打开（txt 就是电脑上的记事本，本软件不带阅读器）；
+        右侧「定位」在资源管理器里选中它。列表来自本地下载文件夹，软件不会删除或移动这些文件。
+      </p>
+    </div>
+  </section>
+
+  <!-- ==================== 历史记录 ==================== -->
+  <div class="drawer-mask" id="historyMask"></div>
+  <section class="drawer drawer-narrow" id="historyDrawer" aria-hidden="true">
+    <header class="drawer-head">
+      <h2>历史记录</h2>
+      <button class="icon-btn" id="btnCloseHistory" title="关闭">✕</button>
+    </header>
+
+    <div class="drawer-body">
+      <div class="side-search">
+        <input type="text" id="historySearch" placeholder="搜索标题或网址">
+      </div>
+      <div class="dir-actions">
+        <button class="btn btn-clear" id="btnClearHistory2">清空全部历史</button>
+      </div>
+      <ul class="dir-list dl-list" id="historyList"></ul>
+      <p class="drawer-tip">
+        点一条就能回到那个页面。同一个地址只存最近一次，最多保留 2000 条。
+      </p>
+    </div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>
