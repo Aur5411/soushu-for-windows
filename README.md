@@ -7,6 +7,11 @@ Discuz! X3.4 小说论坛的桌面客户端。自带完整的 Chromium 内核与
 v1.2.11
 ```
 
+> **下载**：到 [Releases](https://github.com/Aur5411/soushu-for-windows/releases) 拿最新版。
+> 发布页上的文件名是纯 ASCII 的 `soushuba-<版本>-Setup.exe` / `soushuba-<版本>-portable.exe`
+> （避免各种下载器对中文名处理不一致），就是本文里说的
+> `搜书吧-<版本>-Setup.exe` / `搜书吧-<版本>-portable.exe`，同一个东西。
+
 > 这是 Android 版搜书吧（DiscuzForumApp）的电脑版。两个平台不一样，
 > 移动端特有的一些兜底（双通道下载器、内置 TXT 阅读器、下拉刷新等）在桌面
 > 没有必要，所以没有照搬 —— 详见文末「为什么没做这些」。
