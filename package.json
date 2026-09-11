@@ -16,6 +16,7 @@
     "iconv-lite": "^0.7.3"
   },
   "devDependencies": {
+    "@electron/fuses": "^2.1.3",
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0"
   },
@@ -48,7 +49,9 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "publisherName": "Aur5411",
+      "legalTrademarks": "搜书吧"
     },
     "portable": {
       "artifactName": "搜书吧-${version}-portable.exe"
@@ -60,6 +63,15 @@
       "createDesktopShortcut": true,
       "shortcutName": "搜书吧",
       "artifactName": "搜书吧-${version}-Setup.exe"
-    }
+    },
+    "afterPack": "scripts/flip-fuses.js"
+  },
+  "homepage": "https://github.com/Aur5411/soushu-for-windows",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Aur5411/soushu-for-windows.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Aur5411/soushu-for-windows/issues"
   }
 }
