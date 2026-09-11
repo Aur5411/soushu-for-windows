@@ -4,7 +4,7 @@ Discuz! X3.4 小说论坛的 Windows 桌面客户端。自带 Chromium 内核与
 开箱即用：**附件一键后台下载、回复可见自动解锁、地址发布页自动跳转**。
 
 ```
-v1.2.11
+v1.2.12
 ```
 
 > **下载**：到 [Releases](https://github.com/Aur5411/soushu-for-windows/releases) 拿最新版。
