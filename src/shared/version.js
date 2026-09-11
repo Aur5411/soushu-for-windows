@@ -7,7 +7,7 @@
  * 路径里避免中文可以少一堆编码麻烦。界面上显示的一律是 CODENAME。
  */
 module.exports = {
-  VERSION: '1.2.12',
+  VERSION: '1.2.13',
   CODENAME: '搜书吧',
   APP_NAME: 'Soushuba',
   APP_ID: 'com.soushuba.pc'

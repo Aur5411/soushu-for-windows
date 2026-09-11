@@ -533,6 +533,26 @@ function guessExtFromMagic(buffer) {
 }
 
 /**
+ * 取「真正的」后缀。
+ *
+ * 不能用 `path.extname`：帖子标题以「...」结尾时它返回 `'.'`，
+ * 会被当成「已经有后缀了」，于是下面「没有后缀就补 .txt」那一步被跳过，
+ * 落盘的文件就没有后缀 —— Windows 还会把结尾的孤点吃掉，
+ * 用户双击打不开、记事本也选不中它。
+ *
+ * 这里要求点号后面至少有一位字母数字，才算真后缀。
+ */
+function extOf(name) {
+  const m = /\.([A-Za-z0-9]{1,8})$/.exec(String(name || ''));
+  return m ? m[0].toLowerCase() : '';
+}
+
+/** 去掉结尾的点号和空白 —— Windows 建文件时本来也会去掉，先自己处理，保持一致 */
+function trimTrailingDots(name) {
+  return String(name || '').replace(/[.\s\u3000]+$/, '');
+}
+
+/**
  * 综合决定最终文件名。
  * 优先级：帖子标题 > 响应头 > Chromium 建议名 > URL
  */
@@ -593,11 +613,13 @@ function decideFilename(opts) {
 
   chosen = stripWebsite(chosen);
   chosen = chosen.replace(/[\\/:*?"<>|\r\n\t]/g, '_').trim();
+  // 标题常以「...」「.」结尾；这些点在 Windows 上存不住，先自己收干净
+  chosen = trimTrailingDots(chosen);
 
   if (!chosen) chosen = 'download';
 
   // 后缀补全：现有后缀不认识时，用 MIME 或魔数补一个
-  let ext = path.extname(chosen).toLowerCase();
+  let ext = extOf(chosen);
   if (ext && !KNOWN_DOC_EXTS.includes(ext)) {
     const better = (head ? guessExtFromMagic(head) : '') || guessExtFromMime(contentType);
     if (better) {
@@ -610,18 +632,18 @@ function decideFilename(opts) {
     }
   }
 
+  // 还是没有后缀 → 补一个（魔数 → MIME → 抓不到就给 .txt）
+  //
+  // 这里必须无条件补：以前写的是 `else if (!path.extname(chosen))`，
+  // 而 path.extname 对「标题...」返回 '.'（真值），条件不成立就什么都不补，
+  // 结果就是「下载成功但文件没后缀」。
   if (!ext) {
-    const added = (head ? guessExtFromMagic(head) : '') || guessExtFromMime(contentType);
-    if (added) {
-      chosen += added;
-    } else if (!path.extname(chosen)) {
-      chosen += '.txt';
-    }
+    ext = (head ? guessExtFromMagic(head) : '') || guessExtFromMime(contentType) || '.txt';
+    chosen += ext;
   }
 
-  const finalExt = path.extname(chosen);
-  const stem = path.basename(chosen, finalExt).slice(0, 150);
-  const result = stem + finalExt;
+  const stem = trimTrailingDots(path.basename(chosen, ext)).slice(0, 150);
+  const result = stem + ext;
 
   if (trace) {
     return {

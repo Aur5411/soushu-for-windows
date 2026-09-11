@@ -874,6 +874,45 @@ async function main() {
   const mimeOnly = forumLib.decideFilename({ url: 'https://x.com/attachment.php?aid=99' });
   check('㉓ 完全没有线索时兜底成 download.txt', mimeOnly === 'download.txt', '得到 = ' + mimeOnly);
 
+  // 回归：帖子标题以「...」结尾时，path.extname() 会返回 '.'，
+  // 曾被当成「已经有后缀」，于是补 .txt 那步被跳过 —— 下载成功但文件没后缀、
+  // 双击打不开（真实用户反馈 tid=1108232）。
+  const trailingDots = [
+    ['三个点', '测试书名 第一章...'],
+    ['一个点', '测试书名 第一章.'],
+    ['全角省略号', '测试书名 第一章…'],
+    ['点加空格', '测试书名 第一章 . ']
+  ];
+  const dotBad = trailingDots
+    .map(([n, subj]) => ({
+      n,
+      got: forumLib.decideFilename({
+        threadSubject: subj,
+        disposition: '',
+        url: 'https://x.com/forum.php?mod=attachment&aid=1',
+        suggested: '',
+        contentType: 'application/octet-stream',
+        head: Buffer.from('《第一章 正文', 'utf8')
+      })
+    }))
+    .filter((r) => !r.got.endsWith('.txt') || /\.$/.test(r.got));
+  check(
+    '㉓·2 标题以「...」/「.」/「…」结尾时，照样补上 .txt（不能落盘成没后缀）',
+    dotBad.length === 0,
+    dotBad.length
+      ? '出问题：' + dotBad.map((r) => r.n + ' → ' + JSON.stringify(r.got)).join('；')
+      : trailingDots.length + ' 种结尾全部补上了 .txt'
+  );
+
+  // 正常的后缀不能被误改
+  const keepZip = forumLib.decideFilename({
+    threadSubject: '《书名》.zip',
+    url: 'https://x.com/forum.php?mod=attachment&aid=1',
+    contentType: 'application/zip',
+    head: Buffer.from('PK\u0003\u0004', 'binary')
+  });
+  check('㉓·3 真后缀（.zip）保持不动', keepZip === '《书名》.zip', '得到 = ' + keepZip);
+
   // 发布页自动跳转：这是搜书吧最有用的一个「自动」，链接挑选逻辑必须靠得住
   await view.webContents.loadURL(baseUrl + '/publish.html');
   await wait(500);
