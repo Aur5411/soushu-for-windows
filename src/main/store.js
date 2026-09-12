@@ -98,7 +98,7 @@ function defaultSettings() {
     openForumOnStart: true,
     // 站外链接交给系统浏览器，避免这个窗口变成通用浏览器
     externalLinksToSystem: true,
-    // 左侧脚本面板不用时自动收起（悬停/点击会展开）
+    // 点击右侧网页时自动收起左侧脚本面板（开机默认常驻展开）
     sidebarAutoCollapse: true,
     // 点附件链接时后台下载，不把帖子页顶掉；下载完自动刷新页面解锁隐藏内容
     autoDownloadAttachments: true,

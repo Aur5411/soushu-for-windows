@@ -154,6 +154,28 @@ let activeTabId = null;
 let contentBounds = { x: 0, y: 0, width: 0, height: 0 };
 let contentVisible = true;
 
+/**
+ * 用户是不是点了右边的网页？
+ *
+ * 一开始想用「网页拿到焦点」来判断（WebContents 的 focus 事件），实测不行：
+ * 开机首帧渲染、地址发布页自动跳转、站点重定向、切标签……都会让网页自己
+ * 拿到焦点，用它当依据，面板会在开机几秒后自己收起来 —— 正是要修的毛病。
+ * 试过用时间窗把「程序造成的焦点」滤掉，但每次发布页跳转的耗时都不一样，
+ * 总有漏网的（实测有 5.7 秒、8.8 秒、12.1 秒各中过一次）。
+ *
+ * 换成 input-event：真正的鼠标按下去才会有 mouseDown，程序再怎么跳转都不会。
+ * 判定依据从「猜」变成「事实」。
+ */
+function isPageClick(input) {
+  const type = input && input.type;
+  return (
+    type === 'mouseDown' ||
+    type === 'pointerDown' ||
+    type === 'touchStart' ||
+    type === 'gestureTapDown'
+  );
+}
+
 /** 注入统计：最近命中的网址 */
 const dispatchLog = [];
 
@@ -413,16 +435,27 @@ function setupDownloadInterceptor() {
       pushToast('开始下载：' + base, 'info');
 
       item.on('updated', (e2, state) => {
-        if (state === 'interrupted') pushToast('下载中断：' + base, 'error');
+        const received = item.getReceivedBytes();
+        const total = item.getTotalBytes();
+        if (state === 'interrupted') {
+          reportDownloadProgress({ name: base, received, total, state: 'fail' }, true);
+          pushToast('下载中断：' + base, 'error');
+        } else {
+          reportDownloadProgress({ name: base, received, total, state: 'progressing' });
+        }
       });
 
       item.once('done', (e2, state) => {
         if (state === 'completed') {
+          const size = item.getTotalBytes() || item.getReceivedBytes();
+          reportDownloadProgress({ name: base, received: size, total: size, state: 'done' }, true);
           pushToast('已下载到 Download：' + base, 'ok');
           notifyDownloadDone();
         } else if (state === 'cancelled') {
+          reportDownloadProgress({ name: base, state: 'cancelled' }, true);
           pushToast('下载已取消：' + base, 'info');
         } else {
+          reportDownloadProgress({ name: base, state: 'fail' }, true);
           pushToast('下载失败：' + base, 'error');
         }
       });
@@ -813,9 +846,10 @@ function wireTab(id, wc) {
     wc.reload();
   });
 
-  // 网页拿到焦点说明用户在看网页，通知界面把脚本面板收起来
-  wc.on('focus', () => {
-    if (win) win.webContents.send('ui:page-focused');
+  // 用户在网页上按下了鼠标 —— 通知界面把脚本面板收起来（常驻面板的唯一自动收起时机）
+  wc.on('input-event', (e, input) => {
+    if (!win || !isPageClick(input)) return;
+    win.webContents.send('ui:page-clicked');
   });
 
   wc.on('before-input-event', (event, input) => {
@@ -1043,6 +1077,41 @@ function invokeMenuCommand(tabId, menuId) {
 function pushToast(message, kind) {
   if (!win) return;
   win.webContents.send('ui:toast', { message, kind: kind || 'info' });
+}
+
+/**
+ * 把下载进度推给界面（底部状态栏那条进度条）。
+ *
+ * 必须节流：一个 70MB 的文件会有上千次回调，每次都发 IPC 太浪费。
+ * 规则：距上次 ≥120ms，或者百分比变了，才发。
+ * 结束/失败的时候 force=true，保证最后一帧一定送出去。
+ */
+let dlProgressAt = 0;
+let dlProgressPct = -1;
+
+function reportDownloadProgress(payload, force) {
+  if (!win) return;
+
+  const total = Number(payload && payload.total) || 0;
+  const received = Number(payload && payload.received) || 0;
+  const pct = total > 0 ? Math.floor((received / total) * 100) : -1;
+  const now = Date.now();
+
+  if (!force && now - dlProgressAt < 120 && pct === dlProgressPct) return;
+  dlProgressAt = now;
+  dlProgressPct = pct;
+
+  try {
+    win.webContents.send('download:progress', {
+      name: String((payload && payload.name) || ''),
+      received,
+      total,
+      state: (payload && payload.state) || 'progressing',
+      at: now
+    });
+  } catch (e) {
+    /* 界面还没起来就算了，进度不是关键路径 */
+  }
 }
 
 /** 有新文件落盘：让界面刷新下载计数 */
@@ -1683,7 +1752,16 @@ const attachmentDownloader = createAttachmentDownloader({
 });
 
 function fetchAttachment(url, referer, threadSubject) {
-  return attachmentDownloader.download(url, { referer, threadSubject });
+  // 进度条上的名字先用帖子标题顶着 —— 真实文件名要靠正文的魔数/编码才定得下来，
+  // 得等整个文件读完，没法提前知道（定下来之后会再报一次最终名字）
+  const label = String(threadSubject || '').replace(/\s+/g, ' ').trim().slice(0, 40) || '正在下载附件';
+
+  return attachmentDownloader.download(url, {
+    referer,
+    threadSubject,
+    onProgress: (received, total) =>
+      reportDownloadProgress({ name: label, received, total, state: 'progressing' })
+  });
 }
 
 /** 截到附件导航后走这里：后台下载 + 刷新解锁 */
@@ -1721,10 +1799,13 @@ async function handleAttachmentClick(wc, url) {
 
   if (!result.ok) {
     console.error(TAG + ' ' + `附件下载失败：${result.reason} | 起始地址=${url} | Referer=${referer}`);
+    reportDownloadProgress({ name: '', state: 'fail' }, true);
     pushToast('附件下载失败：' + result.reason, 'error');
     return;
   }
 
+  // 这时才知道最终文件名，用它把进度条收尾
+  reportDownloadProgress({ name: result.name, received: 1, total: 1, state: 'done' }, true);
   pushToast('已下载到 Download：' + result.name, 'ok');
   notifyDownloadDone();
 

@@ -101,6 +101,13 @@ function createAttachmentDownloader(deps) {
           cookie,
           userAgent
         }),
+        // 进度只报「确实是文件」的那一跳：
+        // 前面的提示页也是 200，报出来会让进度条先冲满再归零
+        onProgress: (received, total, headers) => {
+          if (typeof opts.onProgress !== 'function') return;
+          if (!isFileResponse(headers)) return;
+          opts.onProgress(received, total);
+        },
         timeout: 120000,
         maxBytes: MAX_BYTES,
         wantBuffer: true

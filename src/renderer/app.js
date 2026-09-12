@@ -62,8 +62,9 @@ async function init() {
   });
   api.on('ui:toast', (t) => toast(t.message, t.kind));
   api.on('ui:focus-address', focusAddress);
-  api.on('ui:page-focused', () => scheduleCollapse(300));
+  api.on('ui:page-clicked', () => scheduleCollapse(300));
   api.on('download:done', () => refreshDownloadInfo());
+  api.on('download:progress', renderDownloadProgress);
   api.on('history:changed', (payload) => {
     state.historyCount = (payload && payload.count) || 0;
     renderHistoryInfo();
@@ -76,9 +77,13 @@ async function init() {
   const pinned = !state.settings.sidebarAutoCollapse;
   if (pinned) {
     $('railPin').textContent = '⇤';
-    $('railPin').title = '恢复自动收起';
+    $('railPin').title = '恢复「点网页就收起」';
   }
-  scheduleCollapse(2600);
+
+  // 开机就常驻：以前这里排了个 2.6 秒的定时器，一启动就把面板收走，
+  // 想找脚本还得先把鼠标挪到左边缘。现在只在两种情况下才收：
+  //   ① 用户自己点收起按钮   ② 用户点了右边的网页
+  setSidebarCollapsed(false);
 }
 
 // ---------------------------------------------------------------- 提示
@@ -329,7 +334,7 @@ async function refreshMatchBadge() {
 }
 
 
-// ---------------------------------------------------------------- 侧边栏自动收起
+// ---------------------------------------------------------------- 脚本面板：收起 / 常驻
 
 let sidebarTimer = null;
 
@@ -369,6 +374,12 @@ function expandSidebar() {
   setSidebarCollapsed(false);
 }
 
+/**
+ * 排一个「待会儿自动收起」。
+ *
+ * 现在只有两种情况会走到这儿：用户点了网页（ui:page-clicked），
+ * 或者刚把面板从「固定展开」切回来。开机、鼠标划过都不会再收起。
+ */
 function scheduleCollapse(delay) {
   if (!state.settings.sidebarAutoCollapse) return;
   clearTimeout(sidebarTimer);
@@ -388,15 +399,97 @@ async function toggleSidebarPin() {
 
   const pin = $('railPin');
   pin.textContent = next ? '⇥' : '⇤';
-  pin.title = next ? '固定展开（关掉自动收起）' : '恢复自动收起';
+  pin.title = next ? '固定展开（点了网页也不收起）' : '恢复「点网页就收起」';
 
   if (next) {
-    toast('已恢复：脚本面板不用时自动收起', 'ok');
+    toast('已恢复：点网页时脚本面板会收起', 'ok');
     scheduleCollapse(1500);
   } else {
     expandSidebar();
-    toast('已固定展开，面板不再自动收起', 'ok');
+    toast('已固定展开，点网页也不会收起', 'ok');
   }
+}
+
+// ---------------------------------------------------------------- 底部下载进度
+
+let dlHideTimer = null;
+let dlLastKey = '';
+
+function fmtBytes(n) {
+  const v = Number(n) || 0;
+  if (v < 1024) return v + ' B';
+  if (v < 1048576) return (v / 1024).toFixed(0) + ' KB';
+  if (v < 1073741824) return (v / 1048576).toFixed(1) + ' MB';
+  return (v / 1073741824).toFixed(2) + ' GB';
+}
+
+function hideDownloadProgress(delay) {
+  clearTimeout(dlHideTimer);
+  dlHideTimer = setTimeout(() => {
+    $('dlProgress').hidden = true;
+    dlLastKey = '';
+  }, delay === undefined ? 0 : delay);
+}
+
+/**
+ * 底部状态栏那条下载进度。
+ *
+ * 主进程会节流着推（≥120ms 或百分比变了才发），这里再挡一道：
+ * 内容没变化就直接 return，不做无意义的 DOM 写入。
+ */
+function renderDownloadProgress(p) {
+  const box = $('dlProgress');
+  if (!box || !p) return;
+
+  const state = String(p.state || 'progressing');
+  const total = Number(p.total) || 0;
+  const received = Number(p.received) || 0;
+  const name = String(p.name || '').trim();
+
+  if (state === 'cancelled') {
+    hideDownloadProgress(0);
+    return;
+  }
+
+  // 收尾的两种结果：停一会儿再消失，不然一闪而过根本看不清
+  if (state === 'done' || state === 'fail') {
+    const ok = state === 'done';
+    clearTimeout(dlHideTimer);
+    dlLastKey = '';
+    box.hidden = false;
+    box.className = 'dl-progress ' + (ok ? 'done' : 'fail');
+    $('dlProgressBar').classList.remove('indeterminate');
+    $('dlProgressName').textContent = name || (ok ? '下载完成' : '下载失败');
+    $('dlProgressName').title = $('dlProgressName').textContent;
+    $('dlProgressFill').style.width = '100%';
+    $('dlProgressPct').textContent = ok ? '完成' : '失败';
+    hideDownloadProgress(ok ? 2200 : 4000);
+    return;
+  }
+
+  clearTimeout(dlHideTimer);
+
+  const known = total > 0;
+  const pct = known ? Math.max(0, Math.min(100, Math.round((received / total) * 100))) : -1;
+
+  // 后缀变化 = 内容变了。总长未知时按 256KB 一档去抖，免得百分比区一直闪。
+  const key = [state, name, pct, known ? 0 : Math.floor(received / 262144)].join('|');
+  if (key === dlLastKey) return;
+  dlLastKey = key;
+
+  box.hidden = false;
+  box.className = 'dl-progress';
+  $('dlProgressBar').classList.toggle('indeterminate', !known);
+  $('dlProgressFill').style.width = known ? pct + '%' : '100%';
+  $('dlProgressPct').textContent = known
+    ? pct + '%'
+    : (received > 0 ? fmtBytes(received) : '…');
+
+  const nm = $('dlProgressName');
+  nm.textContent = known
+    ? (name ? name + '  ' : '') + fmtBytes(received) + '/' + fmtBytes(total)
+    : (name || '正在下载');
+  nm.title = name || '正在下载';
 }
 
 // ---------------------------------------------------------------- 抽屉通用
@@ -969,8 +1062,10 @@ function bindUi() {
 
   // 侧边栏收起
   const sidebar = $('sidebar');
+  // 鼠标划进来就展开（收起状态下这条窄条是唯一的入口）。
+  // 但**离开不再收起** —— 用户要的是「没操作就一直常驻」，
+  // 鼠标路过一下就消失太烦人了。
   sidebar.addEventListener('mouseenter', expandSidebar);
-  sidebar.addEventListener('mouseleave', () => scheduleCollapse());
 
   $('btnFoldSidebar').addEventListener('click', () => setSidebarCollapsed(true));
   $('railExpand').addEventListener('click', expandSidebar);

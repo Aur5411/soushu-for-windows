@@ -16,14 +16,14 @@
         <button class="rail-btn rail-mark" id="railExpand" title="展开脚本面板">书</button>
         <button class="rail-btn" id="railImport" title="导入脚本">＋</button>
         <div class="rail-spacer"></div>
-        <button class="rail-btn" id="railPin" title="固定展开（关掉自动收起）">⇥</button>
+        <button class="rail-btn" id="railPin" title="固定展开（点了网页也不收起）">⇥</button>
       </div>
 
       <div class="brand">
         <div class="mark">书</div>
         <div class="brand-text">
           <div class="brand-name">搜书吧</div>
-          <div class="brand-ver" id="verText">v1.2.13</div>
+          <div class="brand-ver" id="verText">v1.2.14</div>
         </div>
         <button class="icon-btn brand-fold" id="btnFoldSidebar" title="收起脚本面板">‹</button>
       </div>
@@ -80,6 +80,13 @@
       <!-- 状态栏：网页视图盖不到这里，提示只能放这，否则会被网页盖掉 -->
       <div class="statusbar">
         <div class="status-msg" id="statusMsg"></div>
+
+        <!-- 下载进度：没有下载在跑的时候整块藏起来，不占视觉 -->
+        <div class="dl-progress" id="dlProgress" hidden>
+          <span class="dl-progress-name" id="dlProgressName"></span>
+          <span class="dl-progress-bar" id="dlProgressBar"><i class="dl-progress-fill" id="dlProgressFill"></i></span>
+          <span class="dl-progress-pct" id="dlProgressPct"></span>
+        </div>
       </div>
 
       <div class="drop-hint" id="dropHint">松手即导入脚本</div>

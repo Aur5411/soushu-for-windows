@@ -22,6 +22,8 @@ const DEFAULT_MAX_BYTES = 8 * 1024 * 1024;
  * @param {string|Buffer} [options.data] 请求体
  * @param {number} [options.timeout]
  * @param {number} [options.maxBytes] 超过则中断，避免把内存吃光
+ * @param {Function} [options.onProgress] (received, total, headers) 读取过程中回调；
+ *        total 取不到（chunked 响应）时为 0。下载大文件时用来显示进度。
  * @returns {Promise<{status:number,statusText:string,ok:boolean,responseHeaders:object,finalUrl:string,responseText:string,bytes:number}>}
  */
 function request(options) {
@@ -31,7 +33,8 @@ function request(options) {
     headers = {},
     data = null,
     timeout = DEFAULT_TIMEOUT,
-    maxBytes = DEFAULT_MAX_BYTES
+    maxBytes = DEFAULT_MAX_BYTES,
+    onProgress = null
   } = options || {};
 
   return new Promise((resolve, reject) => {
@@ -81,6 +84,11 @@ function request(options) {
       const chunks = [];
       let bytes = 0;
 
+      const resHeaders = normalizeHeaders(res.headers);
+      let total = 0;
+      const len = parseInt(resHeaders['content-length'], 10);
+      if (isFinite(len) && len > 0) total = len;
+
       res.on('data', (chunk) => {
         bytes += chunk.length;
         if (bytes > maxBytes) {
@@ -93,6 +101,15 @@ function request(options) {
           return;
         }
         chunks.push(chunk);
+
+        // 进度回调绝不能影响下载本身，单独兜住
+        if (typeof onProgress === 'function') {
+          try {
+            onProgress(bytes, total, resHeaders);
+          } catch (e) {
+            /* ignore */
+          }
+        }
       });
 
       res.on('end', () => {
@@ -101,7 +118,7 @@ function request(options) {
           status: res.statusCode,
           statusText: res.statusMessage || '',
           ok: res.statusCode >= 200 && res.statusCode < 400,
-          responseHeaders: normalizeHeaders(res.headers),
+          responseHeaders: resHeaders,
           finalUrl: url,
           responseText: buffer.toString('utf8'),
           bytes

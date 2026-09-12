@@ -76,6 +76,9 @@ async function waitFor(fn, timeout = 8000, interval = 120) {
 // ==================================================================
 
 let server = null;
+
+/** 进度测试用的大文件尺寸（分块发，逼出多次 data 事件） */
+const BIG_SIZE = 600 * 1024;
 let baseUrl = '';
 
 const FORUM_HTML = `<!doctype html><html><head><meta charset="utf-8"><title>帖子</title></head>
@@ -176,6 +179,40 @@ function startServer() {
               '</div></body></html>'
             ].join('\n')
           );
+        } else if (aid === 'REALBIG') {
+          // 大文件本体：带 content-length，分块慢慢发 —— 逼出多次 data 事件，
+          // 这样才测得出进度回调是不是真的在「过程中」报
+          res.writeHead(200, {
+            'content-type': 'application/octet-stream',
+            'content-length': String(BIG_SIZE),
+            'content-disposition': 'attachment; filename="progress-test.bin"'
+          });
+          let sent = 0;
+          const step = 64 * 1024;
+          const timer = setInterval(() => {
+            if (sent >= BIG_SIZE) {
+              clearInterval(timer);
+              res.end();
+              return;
+            }
+            const n = Math.min(step, BIG_SIZE - sent);
+            sent += n;
+            res.write(Buffer.alloc(n, 0x41));
+          }, 4);
+        } else if (aid === 'BIG') {
+          // 大文件链路：还是先回一个提示页，再跳到真文件。
+          // 用来验证「进度只报真文件那一跳」——提示页也是 200，
+          // 要是把它的字节也报出去，进度条会先冲满再归零。
+          send(
+            200,
+            [
+              '<!doctype html><html><head><meta charset="utf-8"><title>提示信息</title></head><body>',
+              '<div id="messagetext">',
+              '<p>附件需要重新获取</p>',
+              `<p><a href="${baseUrl}/attachment.php?aid=REALBIG&amp;sign=abc123">点击这里重新下载</a></p>`,
+              '</div></body></html>'
+            ].join('\n')
+          );
         } else {
           // 真实下载地址：返回文件。
           // 注意响应头不能直接写非 ASCII（Node 会抛 ERR_INVALID_CHAR），
@@ -187,6 +224,25 @@ function startServer() {
           });
           res.end('这是测试文件的正文内容');
         }
+      } else if (url.pathname === '/bigfile.bin') {
+        // 大文件：带 content-length 分块慢慢发，让 http.js 的进度回调收到多次
+        res.writeHead(200, {
+          'content-type': 'application/octet-stream',
+          'content-length': String(BIG_SIZE),
+          'content-disposition': 'attachment; filename="progress-test.bin"'
+        });
+        let sent = 0;
+        const step = 64 * 1024;
+        const timer = setInterval(() => {
+          if (sent >= BIG_SIZE) {
+            clearInterval(timer);
+            res.end();
+            return;
+          }
+          const n = Math.min(step, BIG_SIZE - sent);
+          sent += n;
+          res.write(Buffer.alloc(n, 0x41));
+        }, 4);
       } else if (url.pathname === '/novel.txt') {
         // 论坛常把小说正文直接当纯文本返回：没有 Content-Disposition。
         // 这种响应不能被当成网页显示，要落盘成能用记事本打开的文件。
@@ -996,6 +1052,70 @@ async function main() {
       forumLib.isAttachmentUrl(baseUrl + '/forum.php?mod=viewthread&tid=1') === false &&
       forumLib.isAttachmentUrl(baseUrl + '/attachment.php?mod=misc&action=attachpay&aid=1') === false,
     '附件=true 帖子页=false 付费=false'
+  );
+
+  // ---------------- 下载进度（底部状态栏那条进度条的**数据源**） ----------------
+  // 界面那半截（进度条怎么画）在 test/uismoke.js 里；这里验证数据是真的：
+  // http.js 报字节 → attachment.js 只把「真文件那一跳」转出去。
+  const bigDir = path.join(tempRoot, 'dl-big');
+  fs.mkdirSync(bigDir, { recursive: true });
+
+  const progressEvents = [];
+  const bigDownloader = createAttachmentDownloader({
+    request: httpLib.request,
+    cookiesFor: async () => 'sid=testcookie',
+    downloadDir: () => bigDir,
+    uniqueTarget: (d, n) => path.join(d, n),
+    decideFilename: forumLib.decideFilename,
+    isFileResponse: forumLib.isFileResponse,
+    findRetryDownloadLink: forumLib.findRetryDownloadLink,
+    userAgent: 'test-agent'
+  });
+
+  const bigRes = await bigDownloader.download(baseUrl + '/attachment.php?aid=BIG', {
+    referer: baseUrl + '/forum.php?mod=viewthread&tid=1',
+    threadSubject: '大文件进度测试',
+    onProgress: (received, total) => progressEvents.push({ received, total })
+  });
+
+  const totals = Array.from(new Set(progressEvents.map((p) => p.total)));
+  const last = progressEvents[progressEvents.length - 1] || null;
+  const monotonic = progressEvents.every((p, i) => i === 0 || p.received >= progressEvents[i - 1].received);
+
+  check(
+    '㊽·2 大文件会分多次报进度（不是读完才报一次）',
+    bigRes.ok && progressEvents.length >= 3,
+    bigRes.ok ? `回调 ${progressEvents.length} 次 | 落盘=${JSON.stringify(fs.readdirSync(bigDir))}` : '下载失败：' + bigRes.reason
+  );
+
+  check(
+    '㊽·3 进度里的总长就是文件真实大小',
+    totals.length === 1 && totals[0] === BIG_SIZE,
+    `出现过的 total = ${JSON.stringify(totals)}（应为 [${BIG_SIZE}]）`
+  );
+
+  check(
+    '㊽·4 进度只报真文件那一跳（提示页的字节不能混进来）',
+    last && last.received === BIG_SIZE && last.total === BIG_SIZE,
+    `最后一次 = ${JSON.stringify(last)}`
+  );
+
+  check(
+    '㊽·5 进度是单调递增的（进度条不会往回跳）',
+    monotonic,
+    monotonic ? `${progressEvents.length} 个采样点` : '出现回退：' + JSON.stringify(progressEvents.slice(0, 6))
+  );
+
+  check(
+    '㊽·6 没传 onProgress 也照样能下载（回调是可选的）',
+    await (async () => {
+      const r = await bigDownloader.download(baseUrl + '/attachment.php?aid=BIG', {
+        referer: baseUrl + '/forum.php?mod=viewthread&tid=1',
+        threadSubject: '不带回调'
+      });
+      return r.ok === true;
+    })(),
+    '不带 onProgress 的下载也成功'
   );
 
   check(

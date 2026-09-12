@@ -105,8 +105,9 @@ contextBridge.exposeInMainWorld('scriptdock', {
       'ui:toast',
       'ui:focus-address',
       'ui:setup-forum',
-      'ui:page-focused',
+      'ui:page-clicked',
       'download:done',
+      'download:progress',
       'history:changed'
     ];
     if (!allowed.includes(channel)) return () => {};
