@@ -89,6 +89,29 @@ function request(options) {
       const len = parseInt(resHeaders['content-length'], 10);
       if (isFinite(len) && len > 0) total = len;
 
+      // Content-Disposition 的文件名常常是 GBK 字节，而 Chromium 会把响应头按
+      // UTF-8 解码 —— 非法字节直接替换成 U+FFFD（�），**原始字节在此处就被销毁了**，
+      // 下游再想按 GB18030 还原已经不可能（repairName 拿到的是 41 个� 而不是字节）。
+      //
+      // 补救办法：rawHeaders 里 Chromium 会给出「按 Latin-1 逐字节映射」的原始字符串，
+      // 也就是每个 charCode 恰好等于原始字节值。把这一份单独挂出来给文件名解码用，
+      // 不影响 responseHeaders 的既有格式（GM 脚本读到的还是普通字符串）。
+      let rawContentDisposition = null;
+      try {
+        const rh = res.rawHeaders;
+        if (rh && rh.length) {
+          for (let i = 0; i < rh.length - 1; i += 2) {
+            if (String(rh[i]).toLowerCase() === 'content-disposition') {
+              const v = rh[i + 1];
+              rawContentDisposition = Array.isArray(v) ? v[0] : v;
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        /* 取不到就走 responseHeaders 的常规路径 */
+      }
+
       res.on('data', (chunk) => {
         bytes += chunk.length;
         if (bytes > maxBytes) {
@@ -119,6 +142,9 @@ function request(options) {
           statusText: res.statusMessage || '',
           ok: res.statusCode >= 200 && res.statusCode < 400,
           responseHeaders: resHeaders,
+          // Content-Disposition 的 Latin-1 原始形式（见上方注释）：文件名解码专用。
+          // 与 responseHeaders['content-disposition'] 并存，后者给 GM 脚本按普通字符串用。
+          rawContentDisposition: rawContentDisposition || resHeaders['content-disposition'] || '',
           finalUrl: url,
           responseText: buffer.toString('utf8'),
           bytes

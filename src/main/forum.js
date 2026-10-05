@@ -268,6 +268,11 @@ function scoreName(name) {
   const stem = path.basename(s, path.extname(s));
   if (!stem || /^[\s.\-_]+$/.test(stem)) score += 1000;
 
+  // U+FFFD（替换符）意味着**原始字节已经被销毁**，这个名字再怎么解码都救不回来，
+  // 绝不能落盘。重罚到任何其他候选都赢不了它，保证最终不会存下一串「�」。
+  const replaced = (s.match(/\uFFFD/g) || []).length;
+  score += replaced * 1000;
+
   // U+00A1–U+00FF 几乎只出现在乱码里，重罚，保证原始乱码永远赢不了修复结果
   const latin1Junk = (s.match(/[\u00A1-\u00FF]/g) || []).length;
   score += latin1Junk * 40;
@@ -615,6 +620,15 @@ function decideFilename(opts) {
   chosen = chosen.replace(/[\\/:*?"<>|\r\n\t]/g, '_').trim();
   // 标题常以「...」「.」结尾；这些点在 Windows 上存不住，先自己收干净
   chosen = trimTrailingDots(chosen);
+
+  // 最后一道保险：选出来的名字若还带 U+FFFD（原始字节已被 Chromium 销毁、无法还原），
+  // 就别把一串「�」存进磁盘 —— 换成帖子标题（它来自 DOM，一定是正常中文），
+  // 再不行才用「下载」占位。
+  if (chosen.indexOf('\uFFFD') >= 0) {
+    const fallback = String(raw.subject || '').trim();
+    chosen = fallback && fallback.indexOf('\uFFFD') < 0 ? fallback : 'download';
+    if (trace) sources.push({ kind: 'fallback', name: chosen, score: -1, from: '(U+FFFD 兜底)' });
+  }
 
   if (!chosen) chosen = 'download';
 

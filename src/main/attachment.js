@@ -129,7 +129,12 @@ function createAttachmentDownloader(deps) {
       if (isFileResponse(res.responseHeaders)) {
         const name = decideFilename({
           threadSubject: opts.threadSubject || '',
-          disposition: res.responseHeaders['content-disposition'] || '',
+          // 优先用 rawContentDisposition：responseHeaders 里的那份已经被 Chromium
+          // 按 UTF-8 解码过，GBK 文件名的原始字节被替换成 U+FFFD 而**永久丢失**，
+          // 拿它去 repairName 只会得到一串「�」（实测 41 个），无法还原。
+          // raw 那份是 Latin-1 逐字节映射，charCode 即原始字节，可正确按 GB18030 解回。
+          disposition:
+            res.rawContentDisposition || res.responseHeaders['content-disposition'] || '',
           url: res.finalUrl || url,
           suggested: '',
           contentType: res.responseHeaders['content-type'] || '',
